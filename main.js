@@ -1,4 +1,5 @@
-// Enhanced Space Invaders with 100 Levels, Purchasable Upgrades, and per-level HP for invaders
+// Enhanced Space Invaders with 100 Levels, Purchasable Upgrades, per-level HP for invaders,
+// and per-level increasing points-per-kill.
 // Controls: Left/Right or A/D, Space to shoot, 1 = Shield, 2 = Slow, R to restart
 
 (() => {
@@ -49,6 +50,11 @@
 
       // HP per invader (computed in applyLevelScaling)
       hpPerInvader: 1,
+
+      // Points-per-kill scaling
+      baseKillScore: 10,
+      killPerLevelIncrease: 1, // +1 point per level by default
+      killScore: 10, // computed in applyLevelScaling
 
       // shooting
       lastShotAt: 0,
@@ -104,10 +110,14 @@
     game.hpPerInvader = 1 + Math.floor((lvl - 1) / hpGrowthDivisor);
     if (game.hpPerInvader < 1) game.hpPerInvader = 1;
 
-    // Ensure invaderStepInterval etc. are numbers
+    // Kill score scaling for invaders: increases each level by killPerLevelIncrease
+    game.killScore = Math.max(1, game.baseKillScore + Math.floor((lvl - 1) * game.killPerLevelIncrease));
+
+    // Ensure numeric types
     game.invaderStepInterval = Number(game.invaderStepInterval);
     game.invaderBulletSpeed = Number(game.invaderBulletSpeed);
     game.invaderMoveStep = Number(game.invaderMoveStep);
+    game.killScore = Number(game.killScore);
   }
 
   // Player
@@ -293,7 +303,7 @@
         } else {
           // advance level
           game.level++;
-          // recalc per-level parameters (including hpPerInvader) then create invaders
+          // recalc per-level parameters (including hpPerInvader and killScore) then create invaders
           applyLevelScaling(game.level);
           createInvaders();
           // clear bullets
@@ -348,8 +358,8 @@
 
           if (inv.hp <= 0) {
             inv.alive = false;
-            // award points on kill
-            game.score += 10;
+            // award points on kill using per-level killScore
+            game.score += game.killScore;
           } else {
             // optional: small sound or score for hit can be added here
           }
@@ -485,13 +495,14 @@
 
     // HUD minimal overlays
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(6, 6, 320, 64);
+    ctx.fillRect(6, 6, 360, 72);
     ctx.fillStyle = '#9fb6c7';
     ctx.font = '14px system-ui, Arial';
     ctx.fillText(`Score: ${Math.max(0, Math.floor(game.score))}`, 16, 26);
     ctx.fillText(`Lives: ${game.lives}`, 160, 26);
     ctx.fillText(`Level: ${game.level} / ${game.maxLevel}`, 260, 26);
     ctx.fillText(`Enemy HP: ${game.hpPerInvader}`, 16, 48);
+    ctx.fillText(`Points / Kill: ${game.killScore}`, 160, 48);
 
     // active upgrade timers
     const now = performance.now();
@@ -501,12 +512,12 @@
       let y = 52;
       if (game.shieldActive) {
         const t = Math.max(0, Math.ceil((game.shieldExpires - now) / 1000));
-        ctx.fillText(`Shield: ${t}s`, 140, y);
+        ctx.fillText(`Shield: ${t}s`, 320, y);
         y += 16;
       }
       if (game.slowActive) {
         const t = Math.max(0, Math.ceil((game.slowExpires - now) / 1000));
-        ctx.fillText(`Slow: ${t}s`, 140, y);
+        ctx.fillText(`Slow: ${t}s`, 320, y);
       }
     }
 
@@ -582,6 +593,7 @@
   requestAnimationFrame(loop);
 
   // ensure HUD updates when score changes via other means (like immediate subtraction)
+  // The game updates HUD inside relevant functions; to be safe, periodically refresh small UI pieces
   setInterval(() => {
     if (game) updateHUD();
   }, 300);
