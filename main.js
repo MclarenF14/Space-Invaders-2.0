@@ -1,4 +1,4 @@
-// Enhanced Space Invaders with 100 Levels and Purchasable Upgrades
+// Enhanced Space Invaders with 100 Levels, Purchasable Upgrades, and per-level HP for invaders
 // Controls: Left/Right or A/D, Space to shoot, 1 = Shield, 2 = Slow, R to restart
 
 (() => {
@@ -105,11 +105,13 @@
   }
 
   // Invader
-  function Invader(x, y, row, col) {
+  function Invader(x, y, row, col, hp) {
     return {
       x, y, w: 36, h: 20, row, col,
       alive: true,
-      color: '#ffdd55'
+      color: '#ffdd55',
+      hp: hp,
+      maxHp: hp
     };
   }
 
@@ -123,12 +125,17 @@
     const startX = (W - (cols - 1) * spacingX) / 2;
     const startY = marginY;
 
+    // Determine HP per invader for current level:
+    // Increase hitpoints gradually with level so enemies take more shots at higher levels.
+    // Formula: +1 HP every 5 levels (configurable)
+    const hpPerInvader = 1 + Math.floor((game.level - 1) / 5);
+
     game.invaders = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x = startX + c * spacingX;
         const y = startY + r * spacingY;
-        game.invaders.push(Invader(x, y, r, c));
+        game.invaders.push(Invader(x, y, r, c, hpPerInvader));
       }
     }
   }
@@ -247,9 +254,6 @@
       playerShoot();
     }
 
-    // Buy upgrades via digit keys (handled on keydown; but support here for older browsers)
-    // (primary handling via keydown below)
-
     // Move bullets
     for (let b of game.bullets) b.y += b.vy * dt;
     for (let b of game.invaderBullets) b.y += b.vy * dt;
@@ -272,10 +276,9 @@
         } else {
           // advance level
           game.level++;
-          // refill invaders for next level
-          createInvaders();
-          // recalc per-level parameters
+          // refill invaders for next level (hp will be recalculated)
           applyLevelScaling(game.level);
+          createInvaders();
           // clear bullets
           game.bullets = [];
           game.invaderBullets = [];
@@ -317,9 +320,17 @@
         const inv = game.invaders[j];
         if (!inv.alive) continue;
         if (circleRectCollide(b, inv)) {
-          inv.alive = false;
+          // bullet hits invader: reduce HP; invader dies only when hp <= 0
+          inv.hp = Math.max(0, inv.hp - 1);
+          // remove bullet on hit
           game.bullets.splice(i, 1);
-          game.score += 10;
+          if (inv.hp <= 0) {
+            inv.alive = false;
+            // award points on kill
+            game.score += 10;
+          } else {
+            // optionally give a small score for hitting (not requested), currently no partial score
+          }
           updateHUD();
           break;
         }
@@ -403,6 +414,21 @@
       ctx.fillStyle = '#061127';
       ctx.fillRect(10, 6, 6, 4);
       ctx.fillRect(inv.w - 18, 6, 6, 4);
+
+      // draw HP bar above invader
+      if (inv.maxHp > 1) {
+        const barW = inv.w;
+        const barH = 6;
+        const ratio = inv.hp / Math.max(1, inv.maxHp);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(0, -barH - 6, barW, barH);
+        ctx.fillStyle = '#e25f5f';
+        ctx.fillRect(1, -barH - 5, Math.max(2, (barW - 2) * ratio), barH - 2);
+        // small hp number
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px system-ui, Arial';
+        ctx.fillText(inv.hp.toString(), barW - 12, -barH - 0);
+      }
       ctx.restore();
     }
 
