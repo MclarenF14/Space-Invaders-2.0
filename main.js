@@ -47,6 +47,9 @@
       invaderShootProbabilityBase: 0.35,
       invaderShootProbability: 0.35,
 
+      // HP per invader (computed in applyLevelScaling)
+      hpPerInvader: 1,
+
       // shooting
       lastShotAt: 0,
       shootCooldown: 300, // ms
@@ -64,6 +67,9 @@
       upgradePrice: 100,
       slowMultiplier: 1.8, // movement interval multiplied by this when slowed (slower)
       slowShootFactor: 0.5, // shooting probability multiplier when slowed
+
+      // visual hit flash
+      hitFlash: [], // {x,y,ttl}
 
       lastTimestamp: performance.now()
     };
@@ -89,6 +95,19 @@
 
     // shooting probability increases slightly per level, capped
     game.invaderShootProbability = Math.min(0.9, game.invaderShootProbabilityBase + (lvl - 1) * 0.01);
+
+    // HP scaling for invaders:
+    // Configurable: change hpGrowthDivisor to change how fast HP ramps up.
+    // Current formula: hp = 1 + floor((level - 1) / hpGrowthDivisor)
+    // Example: hpGrowthDivisor = 3 => +1 HP every 3 levels.
+    const hpGrowthDivisor = 3;
+    game.hpPerInvader = 1 + Math.floor((lvl - 1) / hpGrowthDivisor);
+    if (game.hpPerInvader < 1) game.hpPerInvader = 1;
+
+    // Ensure invaderStepInterval etc. are numbers
+    game.invaderStepInterval = Number(game.invaderStepInterval);
+    game.invaderBulletSpeed = Number(game.invaderBulletSpeed);
+    game.invaderMoveStep = Number(game.invaderMoveStep);
   }
 
   // Player
@@ -125,10 +144,8 @@
     const startX = (W - (cols - 1) * spacingX) / 2;
     const startY = marginY;
 
-    // Determine HP per invader for current level:
-    // Increase hitpoints gradually with level so enemies take more shots at higher levels.
-    // Formula: +1 HP every 5 levels (configurable)
-    const hpPerInvader = 1 + Math.floor((game.level - 1) / 5);
+    // Use the hpPerInvader computed in applyLevelScaling to ensure consistency
+    const hpPerInvader = Math.max(1, Math.floor(game.hpPerInvader));
 
     game.invaders = [];
     for (let r = 0; r < rows; r++) {
@@ -276,7 +293,7 @@
         } else {
           // advance level
           game.level++;
-          // refill invaders for next level (hp will be recalculated)
+          // recalc per-level parameters (including hpPerInvader) then create invaders
           applyLevelScaling(game.level);
           createInvaders();
           // clear bullets
@@ -320,21 +337,32 @@
         const inv = game.invaders[j];
         if (!inv.alive) continue;
         if (circleRectCollide(b, inv)) {
+          // Add a short hit flash
+          game.hitFlash.push({ x: b.x, y: b.y, ttl: 180 });
+
           // bullet hits invader: reduce HP; invader dies only when hp <= 0
-          inv.hp = Math.max(0, inv.hp - 1);
+          inv.hp = Math.max(0, (typeof inv.hp === 'number' ? inv.hp : inv.maxHp) - 1);
+
           // remove bullet on hit
           game.bullets.splice(i, 1);
+
           if (inv.hp <= 0) {
             inv.alive = false;
             // award points on kill
             game.score += 10;
           } else {
-            // optionally give a small score for hitting (not requested), currently no partial score
+            // optional: small sound or score for hit can be added here
           }
           updateHUD();
           break;
         }
       }
+    }
+
+    // update hit flashes
+    for (let k = game.hitFlash.length - 1; k >= 0; k--) {
+      game.hitFlash[k].ttl -= dt * 1000;
+      if (game.hitFlash[k].ttl <= 0) game.hitFlash.splice(k, 1);
     }
 
     // Collisions: invader bullets vs player (shield blocks)
@@ -415,11 +443,11 @@
       ctx.fillRect(10, 6, 6, 4);
       ctx.fillRect(inv.w - 18, 6, 6, 4);
 
-      // draw HP bar above invader
-      if (inv.maxHp > 1) {
+      // draw HP bar above invader when > 1 HP
+      if (typeof inv.maxHp === 'number' && inv.maxHp > 1) {
         const barW = inv.w;
         const barH = 6;
-        const ratio = inv.hp / Math.max(1, inv.maxHp);
+        const ratio = (typeof inv.hp === 'number' ? inv.hp : inv.maxHp) / Math.max(1, inv.maxHp);
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(0, -barH - 6, barW, barH);
         ctx.fillStyle = '#e25f5f';
@@ -427,9 +455,18 @@
         // small hp number
         ctx.fillStyle = '#fff';
         ctx.font = '10px system-ui, Arial';
-        ctx.fillText(inv.hp.toString(), barW - 12, -barH - 0);
+        ctx.fillText((typeof inv.hp === 'number' ? inv.hp : inv.maxHp).toString(), barW - 12, -barH - 0);
       }
       ctx.restore();
+    }
+
+    // draw hit flashes
+    for (let f of game.hitFlash) {
+      ctx.beginPath();
+      const alpha = Math.max(0, f.ttl / 180);
+      ctx.fillStyle = `rgba(255,220,100,${alpha})`;
+      ctx.arc(f.x, f.y, 8 * (0.8 + alpha), 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // bullets
@@ -448,27 +485,28 @@
 
     // HUD minimal overlays
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(6, 6, 300, 56);
+    ctx.fillRect(6, 6, 320, 64);
     ctx.fillStyle = '#9fb6c7';
     ctx.font = '14px system-ui, Arial';
     ctx.fillText(`Score: ${Math.max(0, Math.floor(game.score))}`, 16, 26);
     ctx.fillText(`Lives: ${game.lives}`, 160, 26);
-    ctx.fillText(`Level: ${game.level} / ${game.maxLevel}`, 230, 26);
+    ctx.fillText(`Level: ${game.level} / ${game.maxLevel}`, 260, 26);
+    ctx.fillText(`Enemy HP: ${game.hpPerInvader}`, 16, 48);
 
     // active upgrade timers
     const now = performance.now();
     if (game.shieldActive || game.slowActive) {
       ctx.fillStyle = '#7afcff';
       ctx.font = '12px system-ui, Arial';
-      let y = 46;
+      let y = 52;
       if (game.shieldActive) {
         const t = Math.max(0, Math.ceil((game.shieldExpires - now) / 1000));
-        ctx.fillText(`Shield: ${t}s`, 16, y);
+        ctx.fillText(`Shield: ${t}s`, 140, y);
         y += 16;
       }
       if (game.slowActive) {
         const t = Math.max(0, Math.ceil((game.slowExpires - now) / 1000));
-        ctx.fillText(`Slow: ${t}s`, 16, y);
+        ctx.fillText(`Slow: ${t}s`, 140, y);
       }
     }
 
@@ -544,7 +582,6 @@
   requestAnimationFrame(loop);
 
   // ensure HUD updates when score changes via other means (like immediate subtraction)
-  // The game updates HUD inside relevant functions; to be safe, periodically refresh small UI pieces
   setInterval(() => {
     if (game) updateHUD();
   }, 300);
