@@ -1,5 +1,5 @@
 // Enhanced Space Invaders with 100 Levels, Purchasable Upgrades, per-level HP for invaders,
-// and per-level increasing points-per-kill.
+// and points-per-kill that increase by 5 each level.
 // Controls: Left/Right or A/D, Space to shoot, 1 = Shield, 2 = Slow, R to restart
 
 (() => {
@@ -51,10 +51,8 @@
       // HP per invader (computed in applyLevelScaling)
       hpPerInvader: 1,
 
-      // Points-per-kill scaling
-      baseKillScore: 10,
-      killPerLevelIncrease: 1, // +1 point per level by default
-      killScore: 10, // computed in applyLevelScaling
+      // Points per kill (computed in applyLevelScaling). Base 10 at level 1, +5 per level.
+      killScore: 10,
 
       // shooting
       lastShotAt: 0,
@@ -110,14 +108,16 @@
     game.hpPerInvader = 1 + Math.floor((lvl - 1) / hpGrowthDivisor);
     if (game.hpPerInvader < 1) game.hpPerInvader = 1;
 
-    // Kill score scaling for invaders: increases each level by killPerLevelIncrease
-    game.killScore = Math.max(1, game.baseKillScore + Math.floor((lvl - 1) * game.killPerLevelIncrease));
+    // Points-per-kill scaling: baseKill + (level - 1) * incrementPerLevel
+    const baseKill = 10;
+    const incrementPerLevel = 5;
+    game.killScore = baseKill + (lvl - 1) * incrementPerLevel;
 
     // Ensure numeric types
     game.invaderStepInterval = Number(game.invaderStepInterval);
     game.invaderBulletSpeed = Number(game.invaderBulletSpeed);
     game.invaderMoveStep = Number(game.invaderMoveStep);
-    game.killScore = Number(game.killScore);
+    game.killScore = Math.max(0, Math.floor(game.killScore));
   }
 
   // Player
@@ -502,7 +502,7 @@
     ctx.fillText(`Lives: ${game.lives}`, 160, 26);
     ctx.fillText(`Level: ${game.level} / ${game.maxLevel}`, 260, 26);
     ctx.fillText(`Enemy HP: ${game.hpPerInvader}`, 16, 48);
-    ctx.fillText(`Points / Kill: ${game.killScore}`, 160, 48);
+    ctx.fillText(`Kill Points: ${game.killScore}`, 160, 48);
 
     // active upgrade timers
     const now = performance.now();
@@ -512,12 +512,12 @@
       let y = 52;
       if (game.shieldActive) {
         const t = Math.max(0, Math.ceil((game.shieldExpires - now) / 1000));
-        ctx.fillText(`Shield: ${t}s`, 320, y);
+        ctx.fillText(`Shield: ${t}s`, 300, y);
         y += 16;
       }
       if (game.slowActive) {
         const t = Math.max(0, Math.ceil((game.slowExpires - now) / 1000));
-        ctx.fillText(`Slow: ${t}s`, 320, y);
+        ctx.fillText(`Slow: ${t}s`, 300, y);
       }
     }
 
